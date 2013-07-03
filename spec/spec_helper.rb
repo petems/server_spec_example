@@ -5,6 +5,9 @@ require 'net/ssh'
 include Serverspec::Helper::Ssh
 include Serverspec::Helper::DetectOS
 
+IO.popen("vagrant up foo") { |f| puts f.gets }
+IO.popen("vagrant up bar") { |f| puts f.gets }
+
 RSpec.configure do |c|
   if ENV['ASK_SUDO_PASSWORD']
     require 'highline/import'
@@ -25,23 +28,28 @@ RSpec.configure do |c|
       c.host  = host
       options = Net::SSH::Config.for(c.host)
       user    = options[:user] || Etc.getlogin
-      
-      config = `vagrant ssh-config --host #{host}`
-      if config != ''
-        config.each_line do |line|
-          if match = /HostName (.*)/.match(line)
-            c.host = match[1]
-          elsif  match = /User (.*)/.match(line)
-            user = match[1]
-          elsif match = /IdentityFile (.*)/.match(line)
-            options[:keys] =  [match[1].gsub(/"/,'')]
-          elsif match = /Port (.*)/.match(line)
-            options[:port] = match[1]
+
+      vm_list = [ 'foo', 'bar']
+
+      vm_list.each do | vm |
+
+        config = `vagrant ssh-config #{vm}`
+        if config != ''
+          config.each_line do |line|
+            if match = /HostName (.*)/.match(line)
+              c.host = match[1]
+            elsif  match = /User (.*)/.match(line)
+              user = match[1]
+            elsif match = /IdentityFile (.*)/.match(line)
+              options[:keys] =  [match[1].gsub(/"/,'')]
+            elsif match = /Port (.*)/.match(line)
+              options[:port] = match[1]
+            end
           end
         end
+
+        c.ssh   = Net::SSH.start(c.host, user, options)
       end
-    
-      c.ssh   = Net::SSH.start(c.host, user, options)
     end
   end
 end
