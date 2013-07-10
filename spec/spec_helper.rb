@@ -5,9 +5,6 @@ require 'net/ssh'
 include Serverspec::Helper::Ssh
 include Serverspec::Helper::DetectOS
 
-IO.popen("vagrant up foo") { |f| puts f.gets }
-IO.popen("vagrant up bar") { |f| puts f.gets }
-
 RSpec.configure do |c|
   if ENV['ASK_SUDO_PASSWORD']
     require 'highline/import'
@@ -29,27 +26,44 @@ RSpec.configure do |c|
       options = Net::SSH::Config.for(c.host)
       user    = options[:user] || Etc.getlogin
 
-      vm_list = [ 'foo', 'bar']
+      #Not working currently...
+      #vagrant_available?('foo')
 
-      vm_list.each do | vm |
+      config = `vagrant ssh-config foo`
+      if config != ''
+        config.each_line do |line|
+          if match = /HostName (.*)/.match(line)
+            c.host = match[1]
+          elsif  match = /User (.*)/.match(line)
+            user = match[1]
+          elsif match = /IdentityFile (.*)/.match(line)
+            options[:keys] =  [match[1].gsub(/"/,'')]
+          elsif match = /Port (.*)/.match(line)
+            options[:port] = match[1]
+          end
+        end
+      end
+      c.ssh   = Net::SSH.start(c.host, user, options)
+    end
+  end
 
-        config = `vagrant ssh-config #{vm}`
-        if config != ''
-          config.each_line do |line|
-            if match = /HostName (.*)/.match(line)
-              c.host = match[1]
-            elsif  match = /User (.*)/.match(line)
-              user = match[1]
-            elsif match = /IdentityFile (.*)/.match(line)
-              options[:keys] =  [match[1].gsub(/"/,'')]
-            elsif match = /Port (.*)/.match(line)
-              options[:port] = match[1]
+  def vagrant_available?(vm_name)
+    if File.exists?("Vagrantfile")
+      vagrant_status = `vagrant status #{vm_name}`
+      if vagrant_status != ''
+        vagrant_status.each_line do |line|
+          if match = /([a-z]+[\s]+)(created|not created|poweroff|running|saved)[\s](\(virtualbox\)|\(vmware\))/.match(line)
+            if match[2].strip! != 'running'
+              abort "Vagrant box not running. Run `vagrant up` before you run the rspec"
             end
           end
         end
-
-        c.ssh   = Net::SSH.start(c.host, user, options)
+      else
+        abort "Vagrant status error - Check your Vagrantfile or .vagrant folder"
       end
+    else
+      abort "Vagrantfile not found in directory!"
     end
   end
+
 end
